@@ -58,13 +58,11 @@ namespace slide_tester
 
     }
 
-
-
-    class Program
+    class DynWinDriver
     {
         const double massDiff = 1.0033548378;
 
-        public static List<peak> get_target_range(List<peak> peaks, double mono_mz, int charge)
+        public List<peak> get_target_range(List<peak> peaks, double mono_mz, int charge)
         {
             List<peak>.Enumerator copier = peaks.GetEnumerator();
             List<peak>.Enumerator look_ahead = peaks.GetEnumerator();
@@ -178,7 +176,7 @@ namespace slide_tester
             return light_spec;
         }
 
-        public static roundedWindow calculate_window(List<peak> light_spec, double mono_mz)
+        public roundedWindow calculate_window(List<peak> light_spec, double mono_mz)
         {
             double temp_score;
             double min_window = 0.4;
@@ -267,7 +265,7 @@ namespace slide_tester
         }
 
 
-        public static roundedWindow fix_window(roundedWindow orig_window, double mono_mz, int charge)
+        public roundedWindow fix_window(roundedWindow orig_window, double mono_mz, int charge)
         {
 
             double offset = orig_window.offset;
@@ -293,12 +291,21 @@ namespace slide_tester
             return final_window;
         }
 
+
+    }
+
+
+    class Program
+    {
+        const double massDiff = 1.0033548378;
+
         
 
         static void Main(string[] args)
         {
             string line;
 
+            var driver = new DynWinDriver();
 
             System.IO.StreamReader file = new System.IO.StreamReader(@"C:\dev\real_time_seq\diw_testing\diw_testing\tests\standard_noisy.txt");
             List<peak> temp_scan = new List<peak>();
@@ -434,7 +441,7 @@ namespace slide_tester
                 front_index++;
             }
 
-            List<peak> light_spec_2 = get_target_range(temp_scan, mono_mz, charge);
+            List<peak> light_spec_2 = driver.get_target_range(temp_scan, mono_mz, charge);
 
 
             for (int i = 0; i < light_spec_2.Count; i++)
@@ -637,7 +644,7 @@ namespace slide_tester
             double offset = ((upper + lower) / 2.0) - mono_mz;
             double width = upper - lower;
 
-            roundedWindow dyn_win = calculate_window(light_spec_2, mono_mz);
+            roundedWindow dyn_win = driver.calculate_window(light_spec_2, mono_mz);
 
             using (StreamWriter writetext = new StreamWriter("C:\\dev\\real_time_seq\\diw_testing\\diw_testing\\tests\\standard_noisy_answers.txt", true))
             {
@@ -673,7 +680,7 @@ namespace slide_tester
             }
 
 
-            dyn_win = fix_window(dyn_win, mono_mz, charge);
+            dyn_win = driver.fix_window(dyn_win, mono_mz, charge);
 
 
             using (StreamWriter writetext = new StreamWriter("C:\\dev\\real_time_seq\\diw_testing\\diw_testing\\tests\\standard_noisy_answers.txt", true))
