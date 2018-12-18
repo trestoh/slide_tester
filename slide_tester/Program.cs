@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.IO;
 
 namespace slide_tester
 {
@@ -297,9 +298,9 @@ namespace slide_tester
         static void Main(string[] args)
         {
             string line;
-            
 
-            System.IO.StreamReader file = new System.IO.StreamReader(@"C:\dev\workspace\big_off_4.txt");
+
+            System.IO.StreamReader file = new System.IO.StreamReader(@"C:\dev\real_time_seq\diw_testing\diw_testing\tests\standard_noisy.txt");
             List<peak> temp_scan = new List<peak>();
 
             while ((line = file.ReadLine()) != null)
@@ -317,9 +318,9 @@ namespace slide_tester
             List<peak> light_spec = new List<peak>();
             List<peak> iso_hits = new List<peak>();
 
-            int charge = 2;
+            int charge = 3;
             string temp;
-            double mono_mz = 430.7488;
+            double mono_mz = 528.930236816406;
 
             double[] target_isos = { mono_mz, (mono_mz + (massDiff / charge)), (mono_mz + 2 * (massDiff / charge)), (mono_mz + 3 * (massDiff / charge)), (mono_mz + 4 * (massDiff / charge)) };
             double tol = 20 * mono_mz * charge * (1 / 1000000.0);
@@ -585,7 +586,21 @@ namespace slide_tester
 
 
             }
-            
+
+
+
+            using (StreamWriter writetext = new StreamWriter("C:\\dev\\real_time_seq\\diw_testing\\diw_testing\\tests\\standard_noisy_answers.txt"))
+            {
+                
+                for (int i = 0; i < light_spec.Count; i++)
+                {
+                    string spec = (light_spec[i].mz).ToString() + '\t' + (light_spec[i].intensity).ToString();
+                    writetext.WriteLine(spec);
+                }
+
+                string break_spec = "BREAK";
+                writetext.WriteLine(break_spec);
+            }
 
             double upper, lower;
 
@@ -624,6 +639,12 @@ namespace slide_tester
 
             roundedWindow dyn_win = calculate_window(light_spec_2, mono_mz);
 
+            using (StreamWriter writetext = new StreamWriter("C:\\dev\\real_time_seq\\diw_testing\\diw_testing\\tests\\standard_noisy_answers.txt", true))
+            {
+                string window_rep = dyn_win.offset.ToString() + '\t' + dyn_win.width.ToString() + '\t' + dyn_win.upper.ToString() + '\t' + dyn_win.lower.ToString();
+                writetext.WriteLine(window_rep);
+            }
+
             if (Math.Abs(dyn_win.width - width) >= 0.0001 || Math.Abs(dyn_win.offset - offset) >= 0.0001)
             {
                 Console.WriteLine("Something is wrong with modular function");
@@ -652,8 +673,14 @@ namespace slide_tester
             }
 
 
-            dyn_win = fix_window(dyn_win, upper, lower, mono_mz, charge);
+            dyn_win = fix_window(dyn_win, mono_mz, charge);
 
+
+            using (StreamWriter writetext = new StreamWriter("C:\\dev\\real_time_seq\\diw_testing\\diw_testing\\tests\\standard_noisy_answers.txt", true))
+            {
+                string window_rep = dyn_win.offset.ToString() + '\t' + dyn_win.width.ToString() + '\t' + dyn_win.upper.ToString() + '\t' + dyn_win.lower.ToString();
+                writetext.WriteLine(window_rep);
+            }
 
 
             //offset = 10.12356456;
