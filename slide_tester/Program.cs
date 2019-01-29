@@ -4,6 +4,11 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.IO;
+using System.Xml.Linq;
+using System.Xml;
+using System.Xml.Schema;
+using Spline;
+
 
 namespace slide_tester
 {
@@ -307,7 +312,12 @@ namespace slide_tester
 
             var driver = new DynWinDriver();
 
-            System.IO.StreamReader file = new System.IO.StreamReader(@"C:\dev\real_time_seq\diw_testing\diw_testing\tests\standard_noisy.txt");
+            IsotopeSplineDB splineDB = new IsotopeSplineDB("C:/dev/workspace/IsotopeSplines_10kDa_21isotopes.xml");
+
+            IsotopeDistribution id;
+
+            //bad practice but honestly whatever
+            System.IO.StreamReader file = new System.IO.StreamReader(@"C:\dev\workspace\bad_decision_1.txt");
             List<peak> temp_scan = new List<peak>();
 
             while ((line = file.ReadLine()) != null)
@@ -325,12 +335,23 @@ namespace slide_tester
             List<peak> light_spec = new List<peak>();
             List<peak> iso_hits = new List<peak>();
 
-            int charge = 3;
+            int charge = 2;
             string temp;
-            double mono_mz = 528.930236816406;
+            double mono_mz = 801.913146972656;
+
+            /*
+             * 
+             * NEW CODE BE CAREFUL
+             * 
+             * 
+             */
+
+            IsotopeSplineDB splineDB = new IsotopeSplineDB("C:/dev/workspace/IsotopeSplines_10kDa_21isotopes.xml");
+            IsotopeDistribution id;
+            id = splineDB.estimateFromPeptideWeight(charge * mono_mz, 5);
 
             double[] target_isos = { mono_mz, (mono_mz + (massDiff / charge)), (mono_mz + 2 * (massDiff / charge)), (mono_mz + 3 * (massDiff / charge)), (mono_mz + 4 * (massDiff / charge)) };
-            double tol = 20 * mono_mz * charge * (1 / 1000000.0);
+            double tol = 20 * mono_mz * charge * (1 / 1000000.0) * 2;
             int curr_iso = 0;
             bool hit_iso = false;
             double iso_comp = target_isos[0];
@@ -340,15 +361,108 @@ namespace slide_tester
 
             light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
 
-            while (copier.MoveNext() && copier.Current.mz < (mono_mz + 4 * (massDiff / charge) + 0.1))
+            bool normal_exit = false;
+
+            while (copier.MoveNext())
             {
-                if (curr_iso < 5 && Math.Abs(target_isos[curr_iso] - copier.Current.mz) < tol)
+                if (copier.Current.mz < (mono_mz + 4 * (massDiff / charge) + 0.1))
                 {
-                    iso_hits.Add(new peak(copier.Current.mz, copier.Current.intensity));
-                    hit_iso = true;
+                    if (curr_iso < 5 && Math.Abs(target_isos[curr_iso] - copier.Current.mz) < tol)
+                    {
+                        iso_hits.Add(new peak(copier.Current.mz, copier.Current.intensity));
+                        hit_iso = true;
+                    }
+
+                    else if (hit_iso)
+                    {
+                        int best_match = 0;
+                        double min_diff = Math.Abs(iso_hits[0].mz - target_isos[curr_iso]);
+                        for (int i = 0; i < iso_hits.Count(); i++)
+                        {
+                            if (Math.Abs(iso_hits[i].mz - target_isos[curr_iso]) < min_diff)
+                            {
+                                best_match = i;
+                                min_diff = Math.Abs(iso_hits[i].mz - target_isos[curr_iso]);
+                            }
+                        }
+
+                        for (int i = 0; i < iso_hits.Count(); i++)
+                        {
+                            if (i == best_match)
+                                light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
+
+                            else
+                                light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity));
+                        }
+
+                        iso_hits.Clear();
+                        curr_iso++;
+
+                        if (curr_iso == 5)
+                        {
+                            light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
+                            hit_iso = false;
+                        }
+
+                        else if (Math.Abs(target_isos[curr_iso] - copier.Current.mz) < tol)
+                        {
+                            iso_hits.Add(new peak(copier.Current.mz, copier.Current.intensity));
+                            hit_iso = true;
+                        }
+
+                        else
+                        {
+                            light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
+                            hit_iso = false;
+                        }
+
+                    }
+
+                    else
+                    {
+                        light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
+                    }
                 }
 
-                else if (hit_iso)
+                else
+                {
+                    //clean up
+                    normal_exit = true;
+                    if (iso_hits.Count() > 0)
+                    {
+                        int best_match = 0;
+                        double min_diff = Math.Abs(iso_hits[0].mz - target_isos[curr_iso]);
+                        for (int i = 0; i < iso_hits.Count(); i++)
+                        {
+                            if (Math.Abs(iso_hits[i].mz - target_isos[curr_iso]) < min_diff)
+                            {
+                                best_match = i;
+                                min_diff = Math.Abs(iso_hits[i].mz - target_isos[curr_iso]);
+                            }
+                        }
+
+                        for (int i = 0; i < iso_hits.Count(); i++)
+                        {
+                            if (i == best_match)
+                                light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
+
+                            else
+                                light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity));
+                        }
+                    }
+
+                    light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
+                    break;
+
+                }
+
+            }
+
+            //new code to account for "full iso_hits" issue
+
+            if (!normal_exit)
+            {
+                if (iso_hits.Count() > 0)
                 {
                     int best_match = 0;
                     double min_diff = Math.Abs(iso_hits[0].mz - target_isos[curr_iso]);
@@ -369,66 +483,12 @@ namespace slide_tester
                         else
                             light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity));
                     }
-
-                    iso_hits.Clear();
-                    curr_iso++;
-
-                    if (curr_iso == 5)
-                    {
-                        light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
-                        hit_iso = false;
-                    }
-
-                    else if (Math.Abs(target_isos[curr_iso] - copier.Current.mz) < tol)
-                    {
-                        iso_hits.Add(new peak(copier.Current.mz, copier.Current.intensity));
-                        hit_iso = true;
-                    }
-
-                    else
-                    {
-                        light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
-                        hit_iso = false;
-                    }
-
-                }
-
-                else
-                {
-                    light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
-                }
-
-            }
-
-            //new code to account for "full iso_hits" issue
-            
-            if(iso_hits.Count() > 0)
-            {
-                int best_match = 0;
-                double min_diff = Math.Abs(iso_hits[0].mz - target_isos[curr_iso]);
-                for (int i = 0; i < iso_hits.Count(); i++)
-                {
-                    if (Math.Abs(iso_hits[i].mz - target_isos[curr_iso]) < min_diff)
-                    {
-                        best_match = i;
-                        min_diff = Math.Abs(iso_hits[i].mz - target_isos[curr_iso]);
-                    }
-                }
-
-                for (int i = 0; i < iso_hits.Count(); i++)
-                {
-                    if (i == best_match)
-                        light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
-
-                    else
-                        light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity));
                 }
             }
-            
 
-            look_ahead = copier;
-            if (look_ahead.MoveNext())
-                light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
+            //look_ahead = copier;
+            //if (look_ahead.MoveNext())
+            //    light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
 
             int front_index = 0;
             //IEnumerator<ICentroid> walker = temp_ms1.Centroids.GetEnumerator();
@@ -646,18 +706,22 @@ namespace slide_tester
 
             roundedWindow dyn_win = driver.calculate_window(light_spec_2, mono_mz);
 
+            /*
             using (StreamWriter writetext = new StreamWriter("C:\\dev\\real_time_seq\\diw_testing\\diw_testing\\tests\\standard_noisy_answers.txt", true))
             {
                 string window_rep = dyn_win.offset.ToString() + '\t' + dyn_win.width.ToString() + '\t' + dyn_win.upper.ToString() + '\t' + dyn_win.lower.ToString();
                 writetext.WriteLine(window_rep);
             }
-
+            */
             if (Math.Abs(dyn_win.width - width) >= 0.0001 || Math.Abs(dyn_win.offset - offset) >= 0.0001)
             {
                 Console.WriteLine("Something is wrong with modular function");
                 System.Environment.Exit(1);
             }
 
+
+
+           
             if (width > 4.0)
             {
                 /*
@@ -666,8 +730,8 @@ namespace slide_tester
                     lower = target_isos[2] - 2.0;
                     upper = target_isos[2] + 2.0;
                 }
-                    */
-                /*else*/if (offset < 0.0)
+                    
+                if (offset < 0.0)
                 {
                     lower = upper - 4.0;
                 }
@@ -675,9 +739,30 @@ namespace slide_tester
                 {
                     upper = lower + 4.0;
                 }
+                
+                 */
+
+                double deficit = width - 4.0;
+                double right_gap = upper - target_isos[4];
+                double left_gap = target_isos[0] - lower;
+
+                if (left_gap < 0.0)
+                    upper = lower + 4.0;
+
+                else if (right_gap < 0.0)
+                    lower = upper - 4.0;
+
+                else
+                {
+                    double ratio_right = right_gap / (right_gap + left_gap);
+                    upper = upper - ratio_right * deficit;
+                    lower = lower + (1 - ratio_right) * deficit;
+                }
+
                 offset = ((upper + lower) / 2.0) - mono_mz;
                 width = upper - lower;
             }
+
 
 
             dyn_win = driver.fix_window(dyn_win, mono_mz, charge);
@@ -691,12 +776,22 @@ namespace slide_tester
 
 
             //offset = 10.12356456;
-            offset = -1.23856;
+            //offset = -1.23856;
 
             Console.WriteLine("Original Offset: {0}", offset);
 
             double off_rounded = (double)(Math.Round((double)offset, 1));
-            double width_rounded = (double)(Math.Round((double)width, 1));
+
+            double width_rounded;
+
+            if (width > 4.0)
+                width_rounded = 4.0;
+            else
+                width_rounded = Math.Ceiling(width * 10) / 10;
+
+            width_rounded = (double)(Math.Round((double)width_rounded, 1));
+
+            
 
             double less_rounded = (double)(Math.Round((double)offset, 5));
             double first_few = (double)(Math.Round((double)offset, 2));
