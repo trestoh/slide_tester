@@ -67,7 +67,7 @@ namespace slide_tester
     {
         const double massDiff = 1.0033548378;
 
-        public List<peak> get_target_range(List<peak> peaks, double mono_mz, int charge)
+        public List<peak> get_target_range(List<peak> peaks, double mono_mz, int charge, IsotopeSplineDB splinedb)
         {
             List<peak>.Enumerator copier = peaks.GetEnumerator();
             List<peak>.Enumerator look_ahead = peaks.GetEnumerator();
@@ -76,107 +76,111 @@ namespace slide_tester
             List<peak> light_spec = new List<peak>();
             List<peak> iso_hits = new List<peak>();
 
+            IsotopeDistribution id;
+            id = splinedb.estimateFromPeptideWeight(charge * mono_mz, 5);
+
             double[] target_isos = { mono_mz, (mono_mz + (massDiff / charge)), (mono_mz + 2 * (massDiff / charge)), (mono_mz + 3 * (massDiff / charge)), (mono_mz + 4 * (massDiff / charge)) };
             double tol = 20 * mono_mz * charge * (1 / 1000000.0);
             int curr_iso = 0;
             bool hit_iso = false;
             double iso_comp = target_isos[0];
 
+            double[] target_intensities = { 0.0, 0.0, 0.0, 0.0, 0.0 };
+
             while (look_ahead.MoveNext() && look_ahead.Current.mz < (mono_mz - 0.1))
                 copier.MoveNext();
 
-            light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
 
-            while (copier.MoveNext() && copier.Current.mz < (mono_mz + 4 * (massDiff / charge) + 0.1))
+            double best_diff = 100000.0;
+            double best_old_inten = 0.0;
+
+            //double mono_intensity = 0.0;
+
+            if (Math.Abs(target_isos[curr_iso] - copier.Current.mz) < tol)
             {
-                if (curr_iso < 5 && Math.Abs(target_isos[curr_iso] - copier.Current.mz) < tol)
-                {
-                    iso_hits.Add(new peak(copier.Current.mz, copier.Current.intensity));
-                    hit_iso = true;
-                }
+                light_spec.Add(new peak(copier.Current.mz, copier.Current.intensity));
+                best_diff = Math.Abs(target_isos[curr_iso] - copier.Current.mz);
+                best_old_inten = copier.Current.intensity;
+                target_intensities[0] = best_old_inten;
+            }
+            
+            bool early_exit = false;
 
-                else if (hit_iso)
+            while (copier.Current.mz < (mono_mz + 4 * (massDiff / charge) + 0.1))
+            {
+                if (curr_iso < 5)
                 {
-                    int best_match = 0;
-                    double min_diff = Math.Abs(iso_hits[0].mz - target_isos[curr_iso]);
-                    for (int i = 0; i < iso_hits.Count(); i++)
+                    double curr_diff = Math.Abs(target_isos[curr_iso] - copier.Current.mz);
+
+                    if (curr_diff < tol)
                     {
-                        if (Math.Abs(iso_hits[i].mz - target_isos[curr_iso]) < min_diff)
+                        if (curr_diff < best_diff)
                         {
-                            best_match = i;
-                            min_diff = Math.Abs(iso_hits[i].mz - target_isos[curr_iso]);
-                        }
-                    }
+                            if (best_diff < 99999.0)
+                                light_spec[light_spec.Count - 1] = new peak(light_spec.ElementAt(light_spec.Count - 1).mz, -1 * best_old_inten);
+                            best_diff = curr_diff;
+                            best_old_inten = copier.Current.intensity;
 
-                    for (int i = 0; i < iso_hits.Count(); i++)
-                    {
-                        if (i == best_match)
-                            light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
+                            if (curr_iso == 0)
+                                target_intensities[0] = best_old_inten;
+
+                            light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity + 2 * target_intensities[curr_iso]));
+                        }
 
                         else
-                            light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity));
+                            light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
+
+                        if (!copier.MoveNext())
+                        {
+                            early_exit = true;
+                            break;
+                        }
+
                     }
 
-                    iso_hits.Clear();
-                    curr_iso++;
-
-                    if (curr_iso == 5)
+                    else if (copier.Current.mz > target_isos[curr_iso])
                     {
-                        light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
-                        hit_iso = false;
-                    }
+                        if (curr_iso == 0)
+                        {
+                            for (int other_iso = 1; other_iso < 5; ++other_iso)
+                            {
+                                target_intensities[other_iso] = target_intensities[0] * (id.getIntensity(other_iso) / id.getIntensity(0));
+                            }
+                        }
 
-                    else if (Math.Abs(target_isos[curr_iso] - copier.Current.mz) < tol)
-                    {
-                        iso_hits.Add(new peak(copier.Current.mz, copier.Current.intensity));
-                        hit_iso = true;
+                        ++curr_iso;
+                        best_diff = 100000.0;
+                        best_old_inten = 0.0;
+
                     }
 
                     else
                     {
                         light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
-                        hit_iso = false;
+                        if (!copier.MoveNext())
+                        {
+                            early_exit = true;
+                            break;
+                        }
                     }
+
 
                 }
 
                 else
                 {
                     light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
-                }
-
-            }
-
-            //new code to account for "full iso_hits" issue
-
-            if (iso_hits.Count() > 0)
-            {
-                int best_match = 0;
-                double min_diff = Math.Abs(iso_hits[0].mz - target_isos[curr_iso]);
-                for (int i = 0; i < iso_hits.Count(); i++)
-                {
-                    if (Math.Abs(iso_hits[i].mz - target_isos[curr_iso]) < min_diff)
+                    if (!copier.MoveNext())
                     {
-                        best_match = i;
-                        min_diff = Math.Abs(iso_hits[i].mz - target_isos[curr_iso]);
+                        early_exit = true;
+                        break;
                     }
                 }
 
-                for (int i = 0; i < iso_hits.Count(); i++)
-                {
-                    if (i == best_match)
-                        light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
-
-                    else
-                        light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity));
-                }
             }
 
-
-            look_ahead = copier;
-            if (look_ahead.MoveNext())
+            if (!early_exit)
                 light_spec.Add(new peak(copier.Current.mz, -1 * copier.Current.intensity));
-
 
             return light_spec;
         }
@@ -213,7 +217,7 @@ namespace slide_tester
                 j++;
                 if (light_spec[j].mz - light_spec[0].mz >= min_window)
                 {
-                    best.back = j;
+                    best.back = --j;
                     break;
                 }
                 local_sum += light_spec[j].intensity;
@@ -270,7 +274,7 @@ namespace slide_tester
         }
 
 
-        public roundedWindow fix_window(roundedWindow orig_window, double mono_mz, int charge)
+        public roundedWindow fix_window(roundedWindow orig_window, double mono_mz, int charge, double[] target_isos)
         {
 
             double offset = orig_window.offset;
@@ -280,14 +284,23 @@ namespace slide_tester
 
             if (width > 4.0)
             {
-                if (offset < 0.0)
-                {
-                    lower = upper - 4.0;
-                }
-                else if (offset > (4 * (massDiff / charge)))
-                {
+                double deficit = width - 4.0;
+                double right_gap = upper - target_isos[4];
+                double left_gap = target_isos[0] - lower;
+
+                if (left_gap < 0.0)
                     upper = lower + 4.0;
+
+                else if (right_gap < 0.0)
+                    lower = upper - 4.0;
+
+                else
+                {
+                    double ratio_right = right_gap / (right_gap + left_gap);
+                    upper = upper - ratio_right * deficit;
+                    lower = lower + (1 - ratio_right) * deficit;
                 }
+
                 offset = ((upper + lower) / 2.0) - mono_mz;
                 width = upper - lower;
             }
@@ -312,12 +325,10 @@ namespace slide_tester
 
             var driver = new DynWinDriver();
 
-            IsotopeSplineDB splineDB = new IsotopeSplineDB("C:/dev/workspace/IsotopeSplines_10kDa_21isotopes.xml");
-
-            IsotopeDistribution id;
+            
 
             //bad practice but honestly whatever
-            System.IO.StreamReader file = new System.IO.StreamReader(@"C:\dev\workspace\bad_decision_1.txt");
+            System.IO.StreamReader file = new System.IO.StreamReader(@"C:\dev\workspace\new_method_fails_2.txt");
             List<peak> temp_scan = new List<peak>();
 
             while ((line = file.ReadLine()) != null)
@@ -335,9 +346,9 @@ namespace slide_tester
             List<peak> light_spec = new List<peak>();
             List<peak> iso_hits = new List<peak>();
 
-            int charge = 2;
+            int charge = 3;
             string temp;
-            double mono_mz = 801.913146972656;
+            double mono_mz = 670.630126953125;
 
             /*
              * 
@@ -351,6 +362,10 @@ namespace slide_tester
             id = splineDB.estimateFromPeptideWeight(charge * mono_mz, 5);
 
             double[] target_isos = { mono_mz, (mono_mz + (massDiff / charge)), (mono_mz + 2 * (massDiff / charge)), (mono_mz + 3 * (massDiff / charge)), (mono_mz + 4 * (massDiff / charge)) };
+
+            //new variable, be wise
+            double[] target_intensities = { 0.0, 0.0, 0.0, 0.0, 0.0 };
+            
             double tol = 20 * mono_mz * charge * (1 / 1000000.0) * 2;
             int curr_iso = 0;
             bool hit_iso = false;
@@ -388,8 +403,30 @@ namespace slide_tester
 
                         for (int i = 0; i < iso_hits.Count(); i++)
                         {
+
+                            //new version
+                            
                             if (i == best_match)
-                                light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
+                            {
+
+                                //everything in this block is the new code
+                                if (curr_iso == 0)
+                                {
+                                    target_intensities[0] = iso_hits[i].intensity;
+                                    for (int other_iso = 1; other_iso < 5; ++other_iso)
+                                    {
+                                        target_intensities[other_iso] = iso_hits[i].intensity * ( id.getIntensity(other_iso) / id.getIntensity(0) );
+                                    }
+                                }
+
+                                light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity + 2 * target_intensities[curr_iso]));
+                            }
+                            
+                            //
+                            //  old version
+                            //
+                            //if (i == best_match)
+                            //    light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
 
                             else
                                 light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity));
@@ -444,7 +481,8 @@ namespace slide_tester
                         for (int i = 0; i < iso_hits.Count(); i++)
                         {
                             if (i == best_match)
-                                light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
+                                //light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
+                                light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity + 2 * target_intensities[curr_iso]));
 
                             else
                                 light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity));
@@ -478,7 +516,8 @@ namespace slide_tester
                     for (int i = 0; i < iso_hits.Count(); i++)
                     {
                         if (i == best_match)
-                            light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
+                            //light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
+                            light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity + 2 * target_intensities[curr_iso]));
 
                         else
                             light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity));
@@ -501,15 +540,19 @@ namespace slide_tester
                 front_index++;
             }
 
-            List<peak> light_spec_2 = driver.get_target_range(temp_scan, mono_mz, charge);
+            List<peak> light_spec_2 = driver.get_target_range(temp_scan, mono_mz, charge, splineDB);
 
 
             for (int i = 0; i < light_spec_2.Count; i++)
             {
+
+                Console.WriteLine("Old: ({0}, {1}) New: ({2}, {3})", light_spec[i].mz, light_spec[i].intensity, light_spec_2[i].mz, light_spec_2[i].intensity);
+
                 if ( Math.Abs(light_spec[i].mz - light_spec_2[i].mz) >= 0.0001 || Math.Abs(light_spec[i].intensity - light_spec_2[i].intensity) >= 0.0001)
                 {
                     Console.WriteLine("Something is wrong with modular function");
-                    System.Environment.Exit(1);
+                   
+                    //System.Environment.Exit(1);
                 }
             }
 
@@ -610,7 +653,7 @@ namespace slide_tester
                 j++;
                 if (light_spec[j].mz - light_spec[0].mz >= min_window)
                 {
-                    best.back = j;
+                    best.back = --j;
                     break;
                 }
                 local_sum += light_spec[j].intensity;
@@ -716,7 +759,7 @@ namespace slide_tester
             if (Math.Abs(dyn_win.width - width) >= 0.0001 || Math.Abs(dyn_win.offset - offset) >= 0.0001)
             {
                 Console.WriteLine("Something is wrong with modular function");
-                System.Environment.Exit(1);
+                //System.Environment.Exit(1);
             }
 
 
@@ -765,7 +808,7 @@ namespace slide_tester
 
 
 
-            dyn_win = driver.fix_window(dyn_win, mono_mz, charge);
+            dyn_win = driver.fix_window(dyn_win, mono_mz, charge, target_isos);
 
 
             using (StreamWriter writetext = new StreamWriter("C:\\dev\\real_time_seq\\diw_testing\\diw_testing\\tests\\standard_noisy_answers.txt", true))
