@@ -52,13 +52,17 @@ namespace slide_tester
         public double offset;
         public double upper;
         public double lower;
+        public int front;
+        public int back;
 
-        public roundedWindow(double w, double o, double u, double l)
+        public roundedWindow(double w, double o, double u, double l, int f, int b)
         {
             width = w;
             offset = o;
             upper = u;
             lower = l;
+            front = f;
+            back = b;
         }
 
     }
@@ -269,12 +273,12 @@ namespace slide_tester
             double offset = ((upper + lower) / 2.0) - mono_mz;
             double width = upper - lower;
 
-            roundedWindow final_window = new roundedWindow(width, offset, upper, lower);
+            roundedWindow final_window = new roundedWindow(width, offset, upper, lower, best.front, best.back);
             return final_window;
         }
 
 
-        public roundedWindow fix_window(roundedWindow orig_window, double mono_mz, int charge, double[] target_isos)
+        public roundedWindow fix_window(List<peak> light_spec, roundedWindow orig_window, double mono_mz, int charge, double[] target_isos)
         {
 
             double offset = orig_window.offset;
@@ -305,7 +309,85 @@ namespace slide_tester
                 width = upper - lower;
             }
 
-            roundedWindow final_window = new roundedWindow(width, offset, upper, lower);
+            double width_rounded;
+
+            if (width > 4.0)
+                width_rounded = 4.0;
+            else
+                width_rounded = Math.Ceiling(width * 10) / 10;
+
+            //Console.WriteLine("Old Beyond Edges {0} - {1}", light_spec[orig_window.front - 1].mz, light_spec[orig_window.back + 1].mz);
+            //Console.WriteLine("Rounded Edges {0} - {1}", mono_mz + offset - (width_rounded / 2), mono_mz + offset + (width_rounded / 2));
+
+            if (mono_mz + offset - (width_rounded / 2) < light_spec[orig_window.front - 1].mz || mono_mz + offset + (width_rounded / 2) > light_spec[orig_window.back + 1].mz)
+            {
+                if (mono_mz + offset - (width_rounded / 2) < light_spec[orig_window.front - 1].mz && mono_mz + offset + (width_rounded / 2) > light_spec[orig_window.back + 1].mz)
+                {
+                    if (light_spec[orig_window.back + 1].intensity < light_spec[orig_window.front - 1].intensity)
+                    {
+                        upper = (light_spec[orig_window.back + 1].mz + light_spec[orig_window.back].mz) / 2;
+                        lower = upper - width_rounded;
+                    }
+
+                    else
+                    {
+                        lower = (light_spec[orig_window.front - 1].mz + light_spec[orig_window.front].mz) / 2;
+                        upper = lower + width_rounded;
+                    }
+
+                }
+                
+                else if (mono_mz + offset - (width_rounded / 2) < light_spec[orig_window.front - 1].mz)
+                {
+                    lower = (light_spec[orig_window.front - 1].mz + light_spec[orig_window.front].mz) / 2;
+                    upper = lower + width_rounded;
+
+                    if (upper > light_spec[orig_window.back + 1].mz)
+                    {
+                        if (light_spec[orig_window.back + 1].intensity < light_spec[orig_window.front - 1].intensity)
+                        {
+                            upper = (light_spec[orig_window.back + 1].mz + light_spec[orig_window.back].mz) / 2;
+                            lower = upper - width_rounded;
+                        }
+
+                        else
+                        {
+                            lower = (light_spec[orig_window.front - 1].mz + light_spec[orig_window.front].mz) / 2;
+                            upper = lower + width_rounded;
+                        }
+                    }
+
+
+                }
+
+                else if (mono_mz + offset + (width_rounded / 2) > light_spec[orig_window.back + 1].mz)
+                {
+                    upper = (light_spec[orig_window.back + 1].mz + light_spec[orig_window.back].mz) / 2;
+                    lower = upper - width_rounded;
+
+                    if (lower < light_spec[orig_window.front - 1].mz)
+                    {
+                        if (light_spec[orig_window.back + 1].intensity < light_spec[orig_window.front - 1].intensity)
+                        {
+                            upper = (light_spec[orig_window.back + 1].mz + light_spec[orig_window.back].mz) / 2;
+                            lower = upper - width_rounded;
+                        }
+
+                        else
+                        {
+                            lower = (light_spec[orig_window.front - 1].mz + light_spec[orig_window.front].mz) / 2;
+                            upper = lower + width_rounded;
+                        }
+                    }
+
+                }
+
+                offset = ((upper + lower) / 2.0) - mono_mz;
+
+            }
+
+
+            roundedWindow final_window = new roundedWindow(width_rounded, offset, upper, lower, orig_window.front, orig_window.back);
             return final_window;
         }
 
@@ -325,10 +407,16 @@ namespace slide_tester
 
             var driver = new DynWinDriver();
 
-            
+            Console.WriteLine(args[0]);
+
+            bool write_out = System.Convert.ToBoolean(args[0]);
 
             //bad practice but honestly whatever
-            System.IO.StreamReader file = new System.IO.StreamReader(@"C:\dev\workspace\new_method_fails_2.txt");
+            int charge = 2;
+            string temp;
+            double mono_mz = 821.399475097656;
+
+            System.IO.StreamReader file = new System.IO.StreamReader(args[1]);
             List<peak> temp_scan = new List<peak>();
 
             while ((line = file.ReadLine()) != null)
@@ -346,9 +434,7 @@ namespace slide_tester
             List<peak> light_spec = new List<peak>();
             List<peak> iso_hits = new List<peak>();
 
-            int charge = 3;
-            string temp;
-            double mono_mz = 670.630126953125;
+            
 
             /*
              * 
@@ -419,7 +505,7 @@ namespace slide_tester
                                     }
                                 }
 
-                                light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity + 2 * target_intensities[curr_iso]));
+                                light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
                             }
                             
                             //
@@ -482,7 +568,7 @@ namespace slide_tester
                         {
                             if (i == best_match)
                                 //light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
-                                light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity + 2 * target_intensities[curr_iso]));
+                                light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
 
                             else
                                 light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity));
@@ -517,7 +603,7 @@ namespace slide_tester
                     {
                         if (i == best_match)
                             //light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
-                            light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity + 2 * target_intensities[curr_iso]));
+                            light_spec.Add(new peak(iso_hits[i].mz, iso_hits[i].intensity));
 
                         else
                             light_spec.Add(new peak(iso_hits[i].mz, -1 * iso_hits[i].intensity));
@@ -699,19 +785,21 @@ namespace slide_tester
 
 
 
-            using (StreamWriter writetext = new StreamWriter("C:\\dev\\real_time_seq\\diw_testing\\diw_testing\\tests\\standard_noisy_answers.txt"))
+            if (write_out)
             {
-                
-                for (int i = 0; i < light_spec.Count; i++)
+                using (StreamWriter writetext = new StreamWriter(args[2]))
                 {
-                    string spec = (light_spec[i].mz).ToString() + '\t' + (light_spec[i].intensity).ToString();
-                    writetext.WriteLine(spec);
+
+                    for (int i = 0; i < light_spec_2.Count; i++)
+                    {
+                        string spec = (light_spec_2[i].mz).ToString() + '\t' + (light_spec_2[i].intensity).ToString();
+                        writetext.WriteLine(spec);
+                    }
+
+                    string break_spec = "BREAK";
+                    writetext.WriteLine(break_spec);
                 }
-
-                string break_spec = "BREAK";
-                writetext.WriteLine(break_spec);
             }
-
             double upper, lower;
 
             /*
@@ -735,9 +823,14 @@ namespace slide_tester
             */
 
             
-            lower = Math.Min(light_spec[best.front - 1].mz + margin, (light_spec[best.front].mz + light_spec[best.front - 1].mz) / 2.0);
+            //lower = Math.Min(light_spec[best.front - 1].mz + margin, (light_spec[best.front].mz + light_spec[best.front - 1].mz) / 2.0);
             
-            upper = Math.Max(light_spec[best.back + 1].mz - margin, (light_spec[best.back].mz + light_spec[best.back + 1].mz) / 2.0);
+            //upper = Math.Max(light_spec[best.back + 1].mz - margin, (light_spec[best.back].mz + light_spec[best.back + 1].mz) / 2.0);
+
+            roundedWindow dyn_win = driver.calculate_window(light_spec_2, mono_mz);
+
+            upper = dyn_win.upper;
+            lower = dyn_win.lower;
 
 
             //this line should ensure windows no larger than 4.0 MZ
@@ -747,15 +840,17 @@ namespace slide_tester
             double offset = ((upper + lower) / 2.0) - mono_mz;
             double width = upper - lower;
 
-            roundedWindow dyn_win = driver.calculate_window(light_spec_2, mono_mz);
-
-            /*
-            using (StreamWriter writetext = new StreamWriter("C:\\dev\\real_time_seq\\diw_testing\\diw_testing\\tests\\standard_noisy_answers.txt", true))
+          
+            
+            //using (StreamWriter writetext = new StreamWriter("C:\\dev\\real_time_seq\\diw_testing\\diw_testing\\tests\\standard_noisy_answers.txt", true))
+            if (write_out)
             {
-                string window_rep = dyn_win.offset.ToString() + '\t' + dyn_win.width.ToString() + '\t' + dyn_win.upper.ToString() + '\t' + dyn_win.lower.ToString();
-                writetext.WriteLine(window_rep);
+                using (StreamWriter writetext = new StreamWriter(args[2], true))
+                {
+                    string window_rep = dyn_win.offset.ToString() + '\t' + dyn_win.width.ToString() + '\t' + dyn_win.upper.ToString() + '\t' + dyn_win.lower.ToString();
+                    writetext.WriteLine(window_rep);
+                }
             }
-            */
             if (Math.Abs(dyn_win.width - width) >= 0.0001 || Math.Abs(dyn_win.offset - offset) >= 0.0001)
             {
                 Console.WriteLine("Something is wrong with modular function");
@@ -807,16 +902,35 @@ namespace slide_tester
             }
 
 
+            double width_rounded;
 
-            dyn_win = driver.fix_window(dyn_win, mono_mz, charge, target_isos);
+            if (width > 4.0)
+                width_rounded = 4.0;
+            else
+                width_rounded = Math.Ceiling(width * 10) / 10;
 
 
-            using (StreamWriter writetext = new StreamWriter("C:\\dev\\real_time_seq\\diw_testing\\diw_testing\\tests\\standard_noisy_answers.txt", true))
+            Console.WriteLine("Old Beyond Edges {0} - {1}", light_spec_2[dyn_win.front - 1].mz, light_spec_2[dyn_win.back + 1].mz);
+            Console.WriteLine("Rounded Edges {0} - {1}", mono_mz + offset - (width_rounded / 2), mono_mz + offset + (width_rounded / 2));
+
+
+
+            dyn_win = driver.fix_window(light_spec_2, dyn_win, mono_mz, charge, target_isos);
+
+
+            Console.WriteLine("Old Beyond Edges {0} - {1}", light_spec_2[dyn_win.front - 1].mz, light_spec_2[dyn_win.back + 1].mz);
+            Console.WriteLine("Rounded Edges {0} - {1}", mono_mz + offset - (width_rounded / 2), mono_mz + offset + (width_rounded / 2));
+
+
+
+            if (write_out)
             {
-                string window_rep = dyn_win.offset.ToString() + '\t' + dyn_win.width.ToString() + '\t' + dyn_win.upper.ToString() + '\t' + dyn_win.lower.ToString();
-                writetext.WriteLine(window_rep);
+                using (StreamWriter writetext = new StreamWriter(args[2], true))
+                {
+                    string window_rep = dyn_win.offset.ToString() + '\t' + dyn_win.width.ToString() + '\t' + dyn_win.upper.ToString() + '\t' + dyn_win.lower.ToString();
+                    writetext.WriteLine(window_rep);
+                }
             }
-
 
             //offset = 10.12356456;
             //offset = -1.23856;
@@ -825,17 +939,12 @@ namespace slide_tester
 
             double off_rounded = (double)(Math.Round((double)offset, 1));
 
-            double width_rounded;
-
-            if (width > 4.0)
-                width_rounded = 4.0;
-            else
-                width_rounded = Math.Ceiling(width * 10) / 10;
+            
 
             width_rounded = (double)(Math.Round((double)width_rounded, 1));
 
             
-
+           
             double less_rounded = (double)(Math.Round((double)offset, 5));
             double first_few = (double)(Math.Round((double)offset, 2));
 
